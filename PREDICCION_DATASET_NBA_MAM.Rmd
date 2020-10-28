@@ -1,0 +1,253 @@
+---
+title: "Modelo predictivo salarios NBA"
+author: "Mario Arteche Miranda"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+---
+# Descripción de las variables
+
+**Player**: Name and surname.
+
+**Salary**: Players salary.
+
+**NBA_Country** : Players country.
+
+**NBA_DraftNumber**: Player number.
+
+**Age**: Players age.
+
+**Tm**: Players actual team.
+
+**G** : Number of played matches.
+
+**MP** : Time in minutes played.
+
+**PER**: Player Efficiency Rating A measure of per-minute production standardized such that the league average is 15.
+
+**TS.** : True Shooting Percentage A measure of shooting efficiency that takes into account 2-point field goals, 3-point field goals, and free throws.
+
+**X3PAr** : 3-Point Attempt Rate Percentage of FG Attempts from 3-Point Range.
+
+**FTr** : Free Throw Attempt Rate Number of FT Attempts Per FG Attempt.
+
+**ORB.**:  Offensive Rebound Percentage An estimate of the percentage of available offensive rebounds a player grabbed while he was on the floor.
+
+**DRB. **: Defensive Rebound Percentage An estimate of the percentage of available defensive rebounds a player grabbed while he was on the floor.
+
+**TRB.** : Total Rebound Percentage An estimate of the percentage of available rebounds a player grabbed while he was on the floor.
+
+**AST.** : Assist Percentage An estimate of the percentage of teammate field goals a player assisted while he was on the floor.
+
+**STL.** : Steal Percentage An estimate of the percentage of opponent possessions that end with a steal by the player while he was on the floor.
+
+**BLK.** : Block Percentage An estimate of the percentage of opponent two-point field goal attempts blocked by the player while he was on the floor. 
+
+**TOV.** : Turnover Percentage An estimate of turnovers committed per 100 plays.
+
+**USG.** : Usage Percentage An estimate of the percentage of team plays used by a player while he was on the floor.
+
+**OWS** : Offensive Win Shares An estimate of the number of wins contributed by a player due to his offense.
+
+**DWS** : Defensive Win Shares An estimate of the number of wins contributed by a player due to his defense.
+
+**WS** : Win Shares An estimate of the number of wins contributed by a player.
+
+**WS.48** : Win Shares Per 48 Minutes An estimate of the number of wins contributed by a player per 48 minutes (league average is approximately .100)
+
+**OBPM** : Offensive Box Plus/Minus A box score estimate of the offensive points per 100 possessions a player contributed above a league-average player, translated to an average team.
+
+**DBPM** : Defensive Box Plus/Minus A box score estimate of the defensive points per 100 possessions a player contributed above a league-average player, translated to an average team.
+
+**BPM** : Box Plus/Minus A box score estimate of the points per 100 possessions a player contributed above a league-average player, translated to an average team.
+
+**VORP** : Value over Replacement Player A box score estimate of the points per 100 TEAM possessions that a player contributed above a replacement-level (-2.0) player, translated to an average team and prorated to an 82-game season.
+
+
+# Cargamos las librerias a emplear lectura y procesado de los datos
+```{r tidy=TRUE,message=FALSE, warning=FALSE, include=FALSE}
+library(dplyr)
+library(readr)
+library(gvlma)
+library(MASS)
+library(car)
+library(formatR)
+library(tidyverse)
+```
+
+# lectura y procesado de los datos
+```{r tidy=TRUE,message=FALSE, warning=FALSE, include=FALSE}
+mData <- read.csv('nba.csv')
+attach(mData)
+head(mData)
+names(mData)
+```
+
+* Tratamiento de los datos
+
+## Valores unicos del data set.
+```{r echo=FALSE}
+distintos<-distinct(mData)
+head(distintos)
+```
+
+## Valores unicos de la columna Player
+```{r echo=FALSE}
+distpla<-distinct(mData,mData$Player)
+head(distpla)
+```
+
+## Numero de jugadores repetidos y eliminacion de estos
+```{r echo=FALSE}
+nrow(mData[duplicated(mData$Player),])#vmos valores repetidos en jugadores
+mData<-mData[!duplicated(mData$Player),]#eliminamos los valores repetidos
+nrow(mData[duplicated(mData$Player),])#vemos si vuelven a estar esos duplicados
+```
+
+# Construimos nuestro modelo
+### Previamente cargamos los nombres de las columnas de la base de datos para transcribirlos
+```{r echo=FALSE}
+regres01  <- lm(Salary ~ NBA_DraftNumber + Age + G + MP + PER + TS. + X3PAr + FTr + ORB. + DRB. + TRB. + AST. + STL. + BLK. + TOV. + USG. + OWS+ DWS + WS + WS.48 + OBPM + DBPM + BPM + VORP,data = mData)
+summary(regres01)
+```
+
+## Una vez cargado y "analizado" el modelo, analizamos si cumple las 4 hipotesis de significatividad, con el modelo global
+```{r echo=FALSE}
+gvmodel <- gvlma(regres01) 
+summary(gvmodel)#vemos que solo cumple 1 de las 4 hipotesis(heterocedasticidad, varianza constante) para ser explicativo
+```
+
+## Tras el apartado anterior, vemos que el modelo no satisface nuestras hipotesis, por lo que deberemos seleccionar aquellas variables que deberemos eliminar o modificar
+```{r echo=FALSE}
+stepAIC(regres01,direction = "both")
+#este modelo es el que mejor se ajusta:
+```
+
+## Creamos el modelo a partir del menor de los AIC
+```{r echo=FALSE}
+regres02 <- lm(formula = Salary ~ NBA_DraftNumber + Age + G + MP + PER + 
+               X3PAr + ORB. + TRB. + USG. + WS + OBPM, data = mData)
+summary(regres02)
+```
+
+## Validacion global del segundo modelo
+```{r echo=FALSE}
+gvmodel2<-gvlma(regres02)
+summary(gvmodel2)## Sigue cumpliendo solamente una de las 4 hipotesis (heterocedasticidad)
+```
+
+## Vamos a analizar de manera grafica cada una de las hipotesis
+### Normalidad
+```{r}
+qqPlot(regres02, labels=row.names(states), id.method="identify",
+       simulate=TRUE, main="Q-Q Plot")
+```
+
+### Kernel+hist+normalidad
+```{r echo=FALSE}
+residplot <- function(regres02, nbreaks=10) {
+  z <- rstudent(regres02)
+  hist(z, breaks=nbreaks, freq=FALSE,
+       xlab="Studentized Residual",
+       main="Distribution of Errors")
+  rug(jitter(z), col="brown")
+  curve(dnorm(x, mean=mean(z), sd=sd(z)),
+        add=TRUE, col="blue", lwd=2)
+  lines(density(z)$x, density(z)$y,
+        col="red", lwd=2, lty=2)
+  legend("topright",
+         legend = c( "Normal Curve", "Kernel Density Curve"),
+         lty=1:2, col=c("blue","red"), cex=.7)
+}
+residplot(regres02)
+```
+
+### Linealidad
+```{r echo=FALSE}
+crPlots(regres02)
+```
+
+### Heterocedasticidad: rechazamos la hipotesis de homocedasticidad
+```{r echo=FALSE}
+ncvTest(regres02) 
+```
+
+### Heterocedasticidad grafica
+```{r echo=FALSE}
+spreadLevelPlot(regres02) 
+```
+
+### Problemas de colinealidad
+#### Vemos que lo hay, porque varios superan el **2**
+```{r}
+sqrt(vif(regres02)) > 2 
+
+## Analisis de valores atipicos
+```{r echo=FALSE}
+outlierTest(regres02)
+```
+
+### Representacion grafica de los outliers: Parecen ser influyentes
+```{r warning=FALSE, echo=FALSE}
+influencePlot(regres02, id.method="identify", main="Influence Plot", 
+              sub="Circle size is proportial to Cook's Distance" ) 
+```
+
+## Importancia de las variables
+```{r relative_weights,echo=FALSE}
+
+# Definimos la funcion
+relweights <- function(fit,...){ 
+  R <- cor(fit$model) 
+  nvar <- ncol(R)
+  rxx <- R[2:nvar, 2:nvar] 
+  rxy <- R[2:nvar, 1] 
+  svd <- eigen(rxx) 
+  evec <- svd$vectors 
+  ev <- svd$values
+  delta <- diag(sqrt(ev))
+  lambda <- evec %*% delta %*% t(evec)
+  lambdasq <- lambda ^ 2 
+  beta <- solve(lambda) %*% rxy 
+  rsquare <- colSums(beta ^ 2) 
+  rawwgt <- lambdasq %*% beta ^ 2 
+  import <- (rawwgt / rsquare) * 100 
+  import <- as.data.frame(import)
+  row.names(import) <- names(fit$model[2:nvar])
+  names(import) <- "Weights"
+  import <- import[order(import),1, drop = FALSE]
+  dotchart(import$Weights, labels = row.names(import), xlab = "% of R-Square", pch = 19, 
+           main = "Relative Importance of Predictor variables", 
+           sub = paste("Total R-Square=", round(rsquare, digits = 3)),
+           ...)
+return(import)
+}
+```
+
+### Aplicamos la funcion
+```{r echo=FALSE}
+relweights(regres02, col = "orange")
+```
+
+## Hacemos el modelo de prediccion
+### Con una muestra de diez observaciones
+```{r echo=FALSE}
+set.seed(1234)
+
+nrow(mData)
+n<- 10 
+
+#Elegimos el tamaño muestral y luego los seleccionamos.
+ind <- sample(1:nrow(mData),n, replace=FALSE)
+NBA_obj<-mData[ind,]
+NBA_obj
+```
+
+## Hacemos la prediccion, y sacamos el salario de cada jugador
+```{r echo=FALSE}
+predic<-predict(regres02,newdata=NBA_obj)
+predic
+```
+
