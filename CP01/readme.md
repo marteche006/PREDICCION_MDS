@@ -1,0 +1,1 @@
+Este es el primer proyecto para la estimacion del salario de los jugadores de la NBA de manera linel.

@@ -1,0 +1,1 @@
+En este apartado vamos a evaluar el resultado de estimar un modelo a partir de splines.

@@ -1,0 +1,197 @@
+---
+title: "REGULARIZACIÓN Y CV"
+author: "MARIO ARTECHE MIRANDA"
+date: "9/11/2020"
+output:
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+---    
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Descripción de las variables
+
+**Player**: Name and surname.
+
+**Salary**: Players salary.
+
+**NBA_Country** : Players country.
+
+**NBA_DraftNumber**: Player number.
+
+**Age**: Players age.
+
+**Tm**: Players actual team.
+
+**G** : Number of played matches.
+
+**MP** : Time in minutes played.
+
+**PER**: Player Efficiency Rating A measure of per-minute production standardized such that the league average is 15.
+
+**TS.** : True Shooting Percentage A measure of shooting efficiency that takes into account 2-point field goals, 3-point field goals, and free throws.
+
+**X3PAr** : 3-Point Attempt Rate Percentage of FG Attempts from 3-Point Range.
+
+**FTr** : Free Throw Attempt Rate Number of FT Attempts Per FG Attempt.
+
+**ORB.**:  Offensive Rebound Percentage An estimate of the percentage of available offensive rebounds a player grabbed while he was on the floor.
+
+**DRB. **: Defensive Rebound Percentage An estimate of the percentage of available defensive rebounds a player grabbed while he was on the floor.
+
+**TRB.** : Total Rebound Percentage An estimate of the percentage of available rebounds a player grabbed while he was on the floor.
+
+**AST.** : Assist Percentage An estimate of the percentage of teammate field goals a player assisted while he was on the floor.
+
+**STL.** : Steal Percentage An estimate of the percentage of opponent possessions that end with a steal by the player while he was on the floor.
+
+**BLK.** : Block Percentage An estimate of the percentage of opponent two-point field goal attempts blocked by the player while he was on the floor. 
+
+**TOV.** : Turnover Percentage An estimate of turnovers committed per 100 plays.
+
+**USG.** : Usage Percentage An estimate of the percentage of team plays used by a player while he was on the floor.
+
+**OWS** : Offensive Win Shares An estimate of the number of wins contributed by a player due to his offense.
+
+**DWS** : Defensive Win Shares An estimate of the number of wins contributed by a player due to his defense.
+
+**WS** : Win Shares An estimate of the number of wins contributed by a player.
+
+**WS.48** : Win Shares Per 48 Minutes An estimate of the number of wins contributed by a player per 48 minutes (league average is approximately .100)
+
+**OBPM** : Offensive Box Plus/Minus A box score estimate of the offensive points per 100 possessions a player contributed above a league-average player, translated to an average team.
+
+**DBPM** : Defensive Box Plus/Minus A box score estimate of the defensive points per 100 possessions a player contributed above a league-average player, translated to an average team.
+
+**BPM** : Box Plus/Minus A box score estimate of the points per 100 possessions a player contributed above a league-average player, translated to an average team.
+
+**VORP** : Value over Replacement Player A box score estimate of the points per 100 TEAM possessions that a player contributed above a replacement-level (-2.0) player, translated to an average team and prorated to an 82-game season.
+
+
+## Librerias a emplear:
+```{r echo=FALSE,message=FALSE, warning=FALSE}
+library(here) # Comentar
+library(tidyverse)
+library(janitor) # Clean names
+library(skimr) # Beautiful Summarize
+library(magrittr) # Pipe operators
+library(corrplot) # Correlations
+library(ggcorrplot)  # Correlations
+library(PerformanceAnalytics) # Correlations
+library(leaps) # Model selection
+library(MASS)
+library(dplyr)
+library(readr)
+library(gvlma)
+library(MASS)
+library(car)
+library(glmnet)
+library(boot)
+library(leaps)
+library(rsample)
+library(imputeTS)
+```
+
+## Eliminamos los warnings (por pura estetica)
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+suppressWarnings(expr)
+```
+
+## Carga de los datos:
+```{r Carga de datos,include=FALSE}
+df <-  read.csv("nba.csv")
+colnames(df)
+df %<>% clean_names() #"limpiamos" las columnas
+colnames(df) #vemos si ha surgido efecto sobre los nombres de las columnas
+```
+
+## Tratamiento de los datos:
+```{r}
+df %<>% distinct(player,.keep_all = TRUE) # eliminamos jugadores repetidos como en la practica anterior
+df <- na_mean(df, option = "median") # a pesar de haber pocos nulos los cambiamos por su media
+skim(df) #analisis de estadisticos resumidos
+```
+
+## Cambiamos a forma logaritmica la variable salario:
+```{r}
+log_df <- df %>% mutate(salary = log(salary)) #ponenmos de forma logaritmica el salario
+```
+
+## Representamos la correlacion de las variables (menos las categoricas)
+```{r}
+#realizamos un grafico de correlaciones, sin las variables especificadas.
+categoricas <- c("player","nba_country","tm") 
+
+ggcorrplot(cor(log_df %>% 
+                 select_at(vars(-categoricas)), 
+               use = "complete.obs"),
+           hc.order = TRUE,
+           method = "square",
+           type = "lower", 
+          ggtheme = ggplot2::theme_light,
+          colors = c("orange", "black", "blue"),
+          title = "Matriz de correlación de variables numéricas",
+          tl.srt = 90,
+           lab = FALSE)
+```
+
+## Hacemos las correspondientes divisiones del data set para cada tipo de "test":
+```{r}
+set.seed(2020) # muestreo aleatoria
+particion <- initial_split(log_df, prop = .8, strata = "salary") # Cogemos el 80% para hacer la fase de train
+train <- training(particion) # dataset para training
+test  <- testing(particion) #dataset para testing
+
+train_x <- model.matrix(salary ~ . -player -nba_country -tm, data = log_df)[, -1]
+train_y <- log_df$salary
+test_x <- model.matrix(salary ~ . -player -nba_country -tm, data = log_df)[, -1]
+test_y <- log_df$salary
+```
+
+## Elastic net:
+```{r}
+#tabla con los errores de cada valor de alpha
+muestreo <- sample(1:10, size = length(train_y), replace = TRUE)
+# Miramos entre los grupos de alphas.
+tabla_errores_alpha <- tibble::tibble(
+  alpha      = seq(0, 1, by = 0.04),
+  mse_min    = NA,
+  mse_1se    = NA,
+  lambda_min = NA,
+  lambda_1se = NA
+)
+tabla_errores_alpha
+```
+
+## Validacion cruzada con las alphas:
+```{r}
+for (i in seq_along(tabla_errores_alpha$alpha)) {
+  
+  alpha_min <- cv.glmnet(train_x, train_y, alpha = tabla_errores_alpha$alpha[i], foldid = muestreo)
+  
+  # Se sacan los minimun square errors y lambdas
+  tabla_errores_alpha$mse_min[i]    <- alpha_min$cvm[alpha_min$lambda == alpha_min$lambda.min] #error minimo cuadrado
+  tabla_errores_alpha$mse_1se[i]    <- alpha_min$cvm[alpha_min$lambda == alpha_min$lambda.1se] #lambda que minimiza el error minimo cuadrado
+  tabla_errores_alpha$lambda_min[i] <- alpha_min$lambda.min #error minimo standard
+  tabla_errores_alpha$lambda_1se[i] <- alpha_min$lambda.1se #lambda que minimiza el error minimo standard
+}
+tabla_errores_alpha <- tabla_errores_alpha %>% 
+  arrange(mse_min)
+
+tabla_errores_alpha #donde vemos que el alpha que minimiza el mse_min es = 1 lo que nos indica wue es un Lasso
+```
+
+## Calculo el error del Lasso con la base de datos que asignamos a train:
+```{r}
+error_train   <- cv.glmnet(train_x, train_y, alpha = 1.0)
+min(error_train$cvm)
+```
+
+## Predecimos y calculamos el error con la base de datos asignada a test:
+```{r}
+pred <- predict(error_train, s = error_train$lambda.min, test_x)
+mean((test_y - pred)^2) #el error de la prediccion es menor que 
+```

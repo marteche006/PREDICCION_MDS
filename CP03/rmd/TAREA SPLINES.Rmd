@@ -1,0 +1,193 @@
+---
+title: "PRACTICA SPLINES"
+author: "Mario Arteche Miranda"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Eliminamos los warnings (por pura estética)
+```{r, echo=FALSE}
+suppressWarnings(expr)
+```
+
+# variables a estimar
+Las variables clave son las siguientes:
+
+**Overall Science Score (average score for 15 year olds)**  
+
+**Interest in science**  
+
+**Support for scientific inquiry**  
+
+**Income Index**  
+
+**Health Index**  
+
+**Education Index**  
+
+**Human Development Index (composed of the Income index, Health Index, and Education Index)**
+
+# librerias:
+```{r, echo=FALSE}
+library(here) # Comentarios [//]:
+
+library(tidyverse)
+library(janitor) # Limpieza de nombres
+library(skimr) # Summary pro
+library(magrittr) # Pipe operators %<>%
+library(corrplot) # Gráfico de correlaciones
+library(ggcorrplot)  # Correlaciones con ggplot
+library(PerformanceAnalytics) # Otra correlación
+library(rsample)  # data splitting 
+library(glmnet)   # implementing regularized regression approaches
+library(imputeTS) # na_mean() para sustituir NaN por la media
+library(broom) # Modelos en df
+library(flextable) # Tablas formateadas
+library(mgcv) # Estimaciones GAM
+library(reshape2) # Melt DF
+library(knitr) #kable
+
+```
+
+# cargamos los datos:
+```{r, echo=FALSE}
+datos <- read.csv("pisasci2006.csv")
+names(datos)
+head(datos)#hay bastantes na abra que tratarlos
+tail(datos)
+```
+
+# limpieza de datos:
+## limpieza de nombres:
+```{r, echo=FALSE}
+datos %<>% clean_names()   # ponemos comodas las columnas
+colnames(datos)
+```
+
+## limpieza de duplicados:
+```{r, echo=TRUE}
+datos %<>% distinct(country, .keep_all = T)  #eliminamos duplicados si los hubiese que no es el caso
+```
+
+## limpieza de valores nulos, cambiamos por medias de cada columna:
+```{r, echo=FALSE}
+summarise_all(datos, funs(sum(is.na(.)))) #suma de nulos por columna
+datos <- na_mean(datos, option = "median") #los sustituimos por la mediana de cada columna, y "eliminamos" el efecto que podrian tener los outlayers
+```  
+
+## resumen de estadisticos principales:
+```{r, echo=FALSE}
+#dfcomp <- df[complete.cases(df), ] #cogemos solo los casos completos
+skim(datos)
+```
+
+# analisis grafico de la linealidad de cada variable:
+```{r, echo=FALSE}
+par(mfrow = c(3,3))
+
+plot(datos$overall, datos$issues, col = 'orange')
+plot(datos$overall, datos$explain, col = 'orange')
+plot(datos$overall, datos$evidence, col = 'orange')
+plot(datos$overall, datos$interest, col = 'orange')
+plot(datos$overall, datos$support, col = 'orange')
+plot(datos$overall, datos$income, col = 'orange')
+plot(datos$overall, datos$health, col = 'orange')
+plot(datos$overall, datos$edu, col = 'orange')
+plot(datos$overall, datos$hDI, col = 'orange')
+
+par(mfrow = c(1,1))
+```
+
+# ANALISIS GRAFICO DE CORRELACIONES/HISTOGRAMAS:
+```{r, echo=FALSE}
+chart.Correlation(datos %>%  #excluimos country, ya que no hacemos corr de categoricas
+                    select_at(vars(-country)),
+                  histogram = TRUE, pch = 19)
+```
+
+### Estimador el modelo que mejor ajuste las variables con overall, adicionalmente nos arrojara los grados de libertad a tener en cuenta en cada variable.
+
+#### interest
+```{r, echo=FALSE}
+interest_overall <- smooth.spline(datos$interest, datos$overall, cv = TRUE)
+interest_overall
+```
+
+#### income
+```{r, echo=FALSE}
+income_overall <- smooth.spline(datos$overall, datos$overall, cv = TRUE)
+income_overall
+```
+
+#### support
+```{r, echo=FALSE}
+support_overall <- smooth.spline(datos$support, datos$overall, cv = TRUE)
+support_overall
+```
+#### health
+```{r, echo=FALSE}
+health_overall <- smooth.spline(datos$health, datos$overall, cv = TRUE)
+health_overall
+```
+
+#### education
+```{r, echo=FALSE}
+edu_overall <- smooth.spline(datos$edu, datos$overall, cv = TRUE)
+edu_overall
+```
+
+#### hdi
+```{r, echo=FALSE}
+hdi_overall <- smooth.spline(datos$hdi, datos$overall, cv = TRUE)
+hdi_overall
+```
+### creamos una lista con los grados de libertad de cada variable
+```{r, echo=FALSE}
+#añadir kable
+list(cbind(interest_overall$df, income_overall$df, support_overall$df, health_overall$df, edu_overall$df, hdi_overall$df), 
+      col.names = c('df interest', 'df income', 'df support', 'df health','df edu','df hdi'))
+```
+
+### planteamos nuestro modelo GAM: con splines en todas ellas(s)
+```{r, echo=FALSE}
+modelo_con_splines <- gam(overall ~ s(interest) + s(income) + s(support) + s(health) + s(edu) + s(hdi), data = datos)
+
+```
+
+### graficamos el primer modelo
+```{r, echo=FALSE}
+par(mfrow = c(2, 3))
+plot(modelo_con_splines, se = TRUE, col = 'orange', lwd = 2)
+```
+
+###   checkeamos el modelo GAM inicial
+```{r, echo=FALSE}
+gam.check(modelo_con_splines)
+```
+### replanteamos el modelo GAM excluyendo de splines aquellas variables aparentemente lineales
+```{r, echo=FALSE}
+modelo_sin_splines <- gam(overall ~ s(interest) + s(income) + support + health + s(edu) + hdi, data = datos)
+```
+
+### graficamos el segundo modelo
+```{r, echo=FALSE}
+par(mfrow = c(2, 3))
+plot(modelo_sin_splines, se = TRUE, col = 'orange', lwd = 2)
+```
+### checkeamos el modelo GAM ajustado
+```{r, echo=FALSE}
+gam.check(modelo_sin_splines)
+```
+
+### analizamos la significatividad de cada modelo: utilizo AIC porque si hiciese ANOVA (creo) al estar usando diferentes paquetes no me da el p-value
+```{r}
+AIC(modelo_con_splines, modelo_sin_splines)
+```
+

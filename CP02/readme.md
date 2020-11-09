@@ -1,0 +1,1 @@
+En este apartado vamos a realizar regularización y validación cruzada con la estimación de los salarios de los jugadores de la NBA.
