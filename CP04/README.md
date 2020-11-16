@@ -1,0 +1,1 @@
+Trabajo de predicción de ventas de apple mediante modelos de series temporales.

@@ -1,0 +1,165 @@
+---
+title: "Ventas Apple Trimestrales Series Temporales"
+author: "Mario Arteche Miranda"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+---
+![](https://www.estudio34.com/wp-content/uploads/2019/09/cunef.png)
+
+## Objetivo del trabajo:
+El objetivo es predecir las ventas de Apple. Para ello, hemos acudido a Bloomberg y hemos obtenido los datos trimestrales desde el 2T de 2008 hasta el 3T del 2017. (IngresosApple.csv).
+Se debe elegir el modelo ETS y el modelo ARIMA que mejor predice las ventas, habiendo dejado fuera de la estimación los trimestres del 2017.
+Una vez seleccionado el modelo se estimara el modelo con todos los datos y se harán las predicciones del año 2017 y 2018.
+
+## Cargamos las librerias y los datos:
+```{r , warning=FALSE, message=FALSE}
+require(forecast)
+require(xts)
+require(ggplot2)
+library(ggplot2)
+library(tidyr)
+library(skimr)
+library(zoo)
+require(forecast)
+library(forecast)
+require(xts)
+library(xts)
+library(lubridate) #manipular fechas
+library(magrittr)
+library(ggfortify)
+library(tidyverse)
+library(stringr)
+library(dplyr)
+library(aTSA)
+library(autoplotly)
+library(urca)
+library(dplyr)
+library(knitr)
+```
+
+## Cargamos nuestro dataset:
+Nuestro dataset no muestra ni valores nulos ni repetidos, lo que nos permite continuar con el análisis.
+```{r}
+df <- read.csv("Apple.csv", sep = ";")
+skim(df)
+names(df)
+```
+
+## Creamos un objeto con las fechas de formato trimestral:
+```{r}
+fechas <- seq(as.Date("2008-04-01"), as.Date("2017-09-30"), by = "quarter")
+fechas
+df <- mutate(df, fecha = fechas)
+str(df)
+```
+## Pasamos a formato temporal --> xts(series temporales):
+```{r}
+Ventas = xts(df$Ingresos, order.by = as.Date(df$fecha,"%Y/%m/%d"),frequency = 4)
+Ventas = to.quarterly(Ventas)
+```
+
+## Ponemos en formato zoo y hacemos un gráfico de las ventas:
+En el cual vemos que las ventas no siguen ningun patrón estacionario ni en media ni en varianza.
+```{r}
+zVentas = as.zoo(Ventas$Ventas.Close)
+autoplot(as.xts(zVentas),
+         ts.colour = 'orange',
+         ts.linetype = 'longdash') +
+  ggtitle("Ventas Trimestrales Apple") +
+  xlab("Trimestres") +
+  ylab("Ventas") +
+  theme_minimal()
+```
+## Representamos las ventas de manera trimestral con el fin de buscar "patrones" en los datos:
+```{r echo=FALSE}
+# Partimos de los datos del Q2 de 2008.
+tsVentas = ts(coredata(zVentas), start = c(2008, 2), frequency = 4)
+ggfreqplot(tsVentas,
+           fill = "orange",
+           freq = 4,
+           nrow = 1,
+           facet.labeller = c("Q1","Q2","Q3","Q4")) +
+  ggtitle("Ventas por trimestres de Apple") +
+  theme_minimal()
+plot(tsVentas, col = "orange")
+stl(tsVentas[, 1], s.window = "periodic")
+plot(stl(tsVentas[, 1], s.window = "periodic"))
+```
+## Creamos la muestra, dejando fuera los datos de 2017:
+```{r echo=FALSE}
+Omitimos = 3
+Observaciones = length(zVentas)
+oVentas <- window(zVentas,start = index(zVentas[1]),end = index(zVentas[Observaciones - Omitimos]))
+```
+
+## Modelo ETS:
+Predecir series temporales, las cuales presenten dos posibles componentes uno estacional y otro tendencial.
+```{r echo= FALSE}
+etsfit <- ets(oVentas)
+fventas.ets = forecast::forecast(etsfit)
+etsfit$method
+kable(summary(fventas.ets))
+```
+
+## Graficamos los errores:
+El ruido blanco es el error ideal (media 0, varianza cte.). Para que el modelo sea correcto, el error de series temporales ha de ser de tipo ruido blanco. No hay modelo que explique el ruido blanco. El ruido blanco no tiene autocorrelación de ningún tipo.
+```{r echo= FALSE}
+ggtsdisplay(fventas.ets$residuals)
+```
+
+## Graficamos la predicción:
+La linea naranja es el valor real, la linea azul la predicción, y el area gris es el intervalo de confianza.
+```{r echo=FALSE}
+plot(fventas.ets)
+lines(window(zVentas),type = "o",col = "orange") +
+  theme_minimal()
+```
+
+## Modelo ARIMA:
+```{r echo=FALSE}
+Omitimos = 3
+Observaciones = length(zVentas)
+oVentas <- window(zVentas,start = index(zVentas[1]),end = index(zVentas[Observaciones - Omitimos]))
+pVentas <- window(zVentas,start = index(zVentas[Observaciones - Omitimos + 1]),end = index(zVentas[Observaciones]))
+```
+
+ 
+```{r echo=FALSE}
+fitAr = auto.arima(oVentas,lambda = 0)
+summary(fitAr)
+```
+
+## Graficamos los residuos:
+El ruido blanco es el error ideal (media 0, varianza cte.). Para que el modelo sea correcto, el error de series temporales ha de ser de tipo ruido blanco. No hay modelo que explique el ruido blanco. El ruido blanco no tiene autocorrelación de ningún tipo.
+```{r echo=FALSE}
+ggtsdisplay(fitAr$residuals)
+```
+
+## Creamos un dataset:
+```{r echo=FALSE}
+df_new <- data.frame(value = as.vector(zVentas),
+                     time = time(zVentas))
+```
+
+## Hacemos la predicción y graficamos:
+```{r echo=FALSE}
+fventas.arima = forecast::forecast(fitAr)
+
+ggplot(df_new) + geom_point(aes(x = time,y = value),colour = "green") + geom_line(aes(x = time,y = value),colour = "red") + geom_forecast(fventas.arima,alpha = 0.4,colour = "orange") + ggtitle("Predicción de los ingresos de Apple") +
+  theme_minimal()
+```
+
+## Resumen de las predicciones:
+```{r echo= FALSE}
+kable(summary(fventas.arima))
+```
+
+
+## Concluisiones:
+![](https://i.blogs.es/68d1e2/ingresos-prodcuto/450_1000.png)
+Observamos como existe un patron temporal, en el cual la mayor cantidad de las ventas se concentran en el cuarto trimestre.
+Si vemos el gráfico de Arima vemos como en el primer trimestre de 2018 las ventas experimentan una caida.
+De cara al modelo empleado nos vamos a decantar por el ARIMA, ya que arroja errores menores.
