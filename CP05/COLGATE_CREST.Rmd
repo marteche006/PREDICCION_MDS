@@ -1,0 +1,307 @@
+---
+title: "COLGATE_CREST"
+author: "MARIO ARTECHE MIRANDA"
+date: "17/11/2020"
+output:
+  prettydoc::html_pretty:
+    theme: architect
+    highlight: github
+    toc: yes
+---
+![](https://www.estudio34.com/wp-content/uploads/2019/09/cunef.png)
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = FALSE, message = FALSE)
+```
+
+
+# Objetivo del trabajo:
+* En general, a los directores de marketing les gustaría conocer la efectividad de sus gastos en publicidad. El análisis de intervención proporciona una herramienta que puede ser útil para evaluar el impacto de las iniciativas que la empresa, los competidores o terceros pueden realizar en el mix de mercado. En esta caso práctico, consideramos la lucha por la cuota de mercado entre la crema dental Colgate de Colgate-Palmolive y la crema dental Crest de Procter y Gamble.  
+
+* Procter y Gamble introdujeron Crest en el mercado estadounidense en 1956. Antes de ese momento, Colgate disfrutaba de un liderazgo de mercado con una participación de mercado cercana al 50%. Durante los siguientes 4 años, Colgate siguió siendo un competidor dominante y Crest solo logró una participación de mercado relativamente modesta pero estable del 15%. Sin embargo, el 1 de agosto de 1960, el Consejo de Terapéutica Dental de la American Dental Association (ADA) aprobó a Crest como una “ayuda importante en cualquier programa de higiene dental”.  
+
+* Mientras tanto, Procter y Gamble revitalizaron su campaña de marketing para aprovechar el respaldo de la ADA, lo que dio como resultado un salto casi inmediato en la cuota de mercado de Crest en detrimento de la de Colgate.  
+
+* En el fichero data.xlsx se encuentran las cuotas del mercado de Colgate y Crest semanales desde 1958 hasta abril de 1963.  
+
+* El objetivo es predecir las 16 semanas del año 1963, para las dos cuotas de mercado, por lo que se dejará fuera de la muestra este periodo muestral.  
+
+* El análisis debe incluir para las dos series la estimación de un modelo ARIMA, la detección de atípicos/outlier y un modelo de interveción. Por último se debe realizar un modelo de función de tranferencia entre las dos cuotas. 
+
+# Librerias:
+```{r,echo=TRUE,message=FALSE,include=TRUE,warning=FALSE}
+library(TSA)
+library(ggplot2)
+library(forecast)
+library(zoo)
+library(openxlsx)
+library(skimr)
+library(fpp2)
+library(ggfortify)
+require(xts)
+library(xts)
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(Hmisc)
+library(astsa)
+library(tsoutliers)
+library(readxl)
+library(rmarkdown)
+library(readxl)
+library(forecast)
+library(xts)
+library(reshape)
+library(stats)
+```
+
+# Cargamos nuestro dataset:
+* Donde realizamos un breve analisis exploratorio de los datos, así como una rápida visualización del dataset, donde observamos que no hay ni valores nulos ni repetidos.
+```{r,echo=FALSE}
+CuotaMercado <- read.xlsx("data.xlsx")
+CuotaMercado$Date <- as.Date(paste(CuotaMercado$Year, CuotaMercado$Week, 1, sep = "-"), "%Y-%U-%u")
+skim(CuotaMercado)
+```
+* Donde las columnas Crest y Colgate hacen referencia a la cuota de mercado de las empresas en las consiguientes fechas.  
+
+
+# Representamos las cuotas de mercado historicas de cada compañía:
+```{r, echo=FALSE}
+Colgate <- ts(CuotaMercado$Colgate, start = 1958, frequency = round(365/7))
+Crest <- ts(CuotaMercado$Crest, start = 1958, frequency = round(365/7))
+
+ggseasonplot(Colgate, month.labels = TRUE,col = rainbow(6), month.labels.left = TRUE, las = 2) +
+  ylab("Cuota de mercado semanal por años") +
+  xlab("semanas por año") +
+    geom_point(col = "orange") +
+  ggtitle("Cuota de mercado COLGATE") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90))
+
+ggseasonplot(Crest, month.labels = TRUE, col = rainbow(6), month.labels.left = TRUE) +
+  ylab("Cuota de mercado semanas por años") +
+    xlab("semanas por año") +
+  geom_point(col = "orange") +
+  ggtitle("Cuota de mercado CREST") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+* Para ello representamos las cuotas de mercado por semana y establecemos una leyenda con los años del análisis.  
+* Observamos como a medida que pasan los años la cuota de mercado de Crest aumenta y consiguientemente la de Colgate disminuye.
+
+# Observamos la cuota de mercado media anual de cada empresa:   
+* Para ello elaboramos una tabla que contenga las cuotas anuales medias por año de cada empresa, así mismo añadimos una columna que nos indique que empresa obtuvo una mayor cuota de mercada en cada año del análisis.  
+* Donde de la misma manera que en los gráficos observamos como Crest acaba absorviendo la cuota de mercado de Colgate.
+```{r, echo=FALSE,message=FALSE}
+library(plyr)
+
+df <- as.data.frame(round(ddply(CuotaMercado, .(Año = Year), summarize, CMercCrest = mean( Crest ), CMercColgate = mean( Colgate )),3))
+
+df_c <- df %>% 
+  mutate(Ganador = if_else(CMercCrest > CMercColgate,"Crest","Colgate"))
+
+knitr::kable(df_c)
+#, (MayouCM = if((CMercCrest - CMercColgate)>0){print("Crest")} else {print("Colgate") # falta como meter la columna que seleccione con el if else})
+```
+# Datos a formato zoo:
+```{r}
+#Tratamiento de datos
+xcolgate <- ts(CuotaMercado$Colgate, start = 1958, frequency = 52)
+xcrest <- ts(CuotaMercado$Crest, start = 1958, frequency = 52)
+#Conversion de datos
+#Transformamos a zoo
+zcolgate <- as.zoo(Colgate)
+zcrest <- as.zoo(Crest)
+
+names(zcolgate) <- "Colgate"
+names(zcrest) <- "Crest"
+autoplot(log(zcolgate),
+         ts.colour = 'orange',
+         ts.linetype = 'longdash') +
+  ggtitle("Cuota de mercado") +
+  xlab("Semanas") +
+  ylab("Colgate") +
+  theme_classic()
+
+autoplot(log(zcrest),
+         ts.colour = 'orange',
+         ts.linetype = 'longdash') +
+  ggtitle("Cuota de mercado") +
+  xlab("Semanas") +
+  ylab("Crest") +
+  theme_classic()
+
+ggtsdisplay(zcolgate) + theme_classic()
+ggtsdisplay(zcrest) + theme_classic()
+```
+
+# Eliminamos las tendencias y la estacionalidad:
+* Eliminamos la estacionalidad semanal de las cuotas de mercado de cada una de las empresas, como nuestros datos son semanales lo hacemos por 52 (semanas por año).
+```{r}
+
+autoplot(diff(diff(Colgate,52))) + theme_classic()
+ggtsdisplay(diff(diff(Colgate))) + theme_classic()
+autoplot(diff(diff(Crest,52))) + theme_classic()
+ggtsdisplay(diff(diff(Crest))) + theme_classic()
+```
+
+# Seguidamente deberemos dejar "fuera" 16 semanas del año 1963, que será sobre las que apliquemos la predicción posteriormente:
+* Ya que vemos como la serie temporal no es estacionaria (ni en media ni en varianza).
+```{r}
+#Seleccion del numero de observaciones para comparar la prediccion
+#Esto ya es el train 
+#Eliminamos las semanas de 1963
+cOmit = 16
+#Data Size
+nObsColgate = length(Colgate)
+nObsCrest = length(Crest)
+#Sub_sample: para hacer el forecast
+oColgate <- window(zcolgate,start = index(zcolgate[1]),end = index(zcolgate[nObsColgate - cOmit])) 
+oCrest <- window(zcrest,start = index(zcrest[1]),end = index(zcrest[nObsCrest - cOmit])) 
+```
+
+# Una vez elaborada la muestra que vamos a destinar para entrenar el modelo, planteamos el mejor modelo Arima:
+* Para ello seleccionamos la función auto.arima que nos arrojará el mejor modelo arima en función de criterios AIC y BIC. Nos arroja un modelo con una media movil de orden 1 con 1 diferencia regular.
+
+# Box-Cox para analizar el lambda optimo de nuestra función:
+* No es necesario utilizar transformaciones logaritmicas ya que no ganariamos estabilidad siginifactiva en la varianzas de las series.
+```{r}
+BoxCox.ar(zcolgate)
+BoxCox.ar(zcrest)
+```
+
+
+## Modelo Arima para Colgate:
+* Si lambda es igual a cero le estamos añadiendo un logaritmo a la serie, para ello empleamos un box-cox para identificar el lambda optimo que minimice nuestro criterio AIC.
+```{r}
+TrainColgate <- auto.arima(oColgate)
+summary(TrainColgate)
+ggtsdisplay(TrainColgate$residuals)
+
+#(0,1,1) componente autoregresiva, componente integrada y media movil.
+```
+
+## Modelo Arima Crest:
+* Dividimos nuestro dataset en train:
+```{r}
+TrainCrest <- auto.arima(oCrest) 
+summary(TrainCrest)
+ggtsdisplay(TrainCrest$residuals)
+```
+# Analizamos los outliyers de manera gráfica:
+```{r}
+colgate_outlier <- tso(xcolgate, types = c("TC","AO","LS","IO","SLS"))
+plot(colgate_outlier, col = "orange")
+crest_outlier <- tso(xcrest, types = c("TC", "AO", "LS", "IO","SLS"))
+plot(crest_outlier, col = "orange")
+```
+
+# Analisis de outliyers Colgate y Crest:
+```{r}
+# en el modelo
+detectAO(TrainColgate) 
+detectIO(TrainColgate)
+# en el modelo
+detectAO(TrainCrest) 
+detectIO(TrainCrest)
+```
+
+
+
+# Planteamos el modelo Arima para Colgate:
+```{r}
+fColgate.arima <- forecast(TrainColgate)
+df_new <- data.frame(value = as.vector(zcolgate), time = time(zcolgate)) 
+ggplot(df_new) + geom_point(aes(x = time,y = value), colour = "black") + geom_line(aes(x = time,y = value), colour = "orange") + autolayer(fColgate.arima,alpha = 0.4) + xlab("Fecha") + ylab("Colgate") + ggtitle("PREDICCIÓN ARIMA COLGATE") + theme_classic()
+```
+
+# Planteamos el modelo Arima para Crest:
+```{r}
+fCrest.arima <- forecast(TrainCrest)
+df_new <- data.frame(value = as.vector(zcrest), time = time(zcrest)) 
+ggplot(df_new) + geom_point(aes(x = time,y = value), colour = "black") + geom_line(aes(x = time,y = value), colour = "orange") + autolayer(fCrest.arima,alpha = 0.4) + xlab("Fecha") + ylab("Colgate") + ggtitle("PREDICCIÓN ARIMA CREST") + theme_classic()
+```
+
+# Box-Test para analizar los residuos:
+*  Nuestro pvalue es mayor que 0,05 lo que nos dice que aceptamos la hipotesis nula de ruido blanco en nuestros errores.
+
+```{r}
+a <- Box.test(fColgate.arima$residuals, lag = 24, fitdf = 1, type = "Lj")
+
+b <- Box.test(fCrest.arima$residuals, lag = 24, fitdf = 1, type = "Lj")
+
+knitr:: kable(cbind(a$p.value, b$p.value), col.names = c('P-value Arima Crest', 'P-value Arima Colgate'))
+
+```
+
+
+# El modelo Arima nos arroja el order a aplicar en nuestros modelos Arimax:
+* Planteamos el modelo Arimax para Colgate y Crest.
+* Con el modelo ARIMAX realizamos el anális de intervención. En el caso de Colgate hemos colocado una variable impulso en la semana número 50 de 1959 y una variable escalón en la semana numero 30 de 1960, que corresponde con el anuncio de la ADA a favor del uso de productos de la marca Crest. No hemos introducido ningun otro outliers ya que no creeemos que sea necesario.
+```{r}
+colgate.m1 <- arimax(oColgate, order = c(0,1,1),method = "ML",
+                   xtransf = data.frame(I135 = 1*(seq(oColgate) == 135),
+                                       I135 = 1*(seq(oColgate) >= 135)),
+                   transfer = list(c(1,0),c(0,0)))
+
+na.omit(colgate.m1)
+colgate.m1$coef
+
+plot(colgate.m1$coef[2:16],type = "h") #con 16 retardos
+plot(oColgate ,ylab = 'train_colgate')
+points(fitted(colgate.m1), col = 'orange')
+
+```
+
+* En primer lugar, generaremos un modelo ARIMAX para la serie Crest sin tener en cuenta los outliers detectados, para asi realizar una comparación entre ambos modelos.
+
+El anális de intervención realizado consta de un escalón abrupto en el mes de agosto de 1960, por las mismas razones que en la serie de Colgate. 
+```{r}
+crestm1 <- arimax(oCrest, order = c(3,1,0),seasonal = list(order = c(1,0,0)),method = "ML",
+                   xtransf = data.frame(I135 = 1*(seq(oCrest) == 135),
+                                       I135 = 1*(seq(oCrest) >= 135)),
+                   transfer = list(c(1,0),c(0,0)))
+
+
+crestm1$coef
+
+plot(crestm1$coef[2:16],type = "h")
+
+plot(oCrest ,ylab = 'train_crest')
+points(fitted(crestm1), col = 'orange')
+
+```
+
+# Volvemos a analizar los outlayers tras el modelo arimax:
+```{r}
+# en el modelo
+detectAO(colgate.m1)
+detectIO(colgate.m1)
+# en el modelo
+detectAO(crestm1)
+detectIO(crestm1)
+```
+
+# Definimos la función de transferencia:
+```{r}
+
+colgate_s <- window(CuotaMercado$Colgate, end = 260) # Quitamos las 16 semanas sobre las que predeciriamos
+crest_s <- window(CuotaMercado$Crest, end = 260)
+
+mod0 <- arimax(colgate_s, order = c(0,1,1),
+               include.mean = TRUE,
+                fixed = c(NA,NA,NA,0,0,0,0,NA),
+               xtransf = crest_s,
+               transfer = list(c(2,4)),
+               method = "ML")
+mod0
+
+ggtsdisplay(mod0$residuals)
+
+plot(mod0$coef[2:17],type = "h")
+
+
+```
+
