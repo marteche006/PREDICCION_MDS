@@ -1,0 +1,114 @@
+---
+title: "Casual Impact"
+author: "Mario Arteche "
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: Cayman
+    highlight: github
+---
+![](https://www.estudio34.com/wp-content/uploads/2019/09/cunef.png)
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+## Objetivo:
+
+* Explicar el efecto del "diesel gate" en la cotización tanto de BMW como de VW.
+* Mediante Causal Impact:La investigación causal es aquella que estudia la relación que se encuentra entre  variables. Su objetivo es conocer el efecto positivo o negativo que puede producir un cambio inesperado de las variables independientes en un producto o servicio.
+
+```{r, message=FALSE}
+# load required packages
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(xts)
+library(CausalImpact)
+library(quantmod)
+library(tseries)
+```
+
+* Cargamos las cotizaciones desde el 01/01/2014 hasta la fecha actual
+```{r, message=FALSE, warning=FALSE,include=FALSE}
+getSymbols('BMW.DE', from = '2014-01-01', to = Sys.Date())
+bmw <- BMW.DE[,6]
+
+getSymbols('VOW.DE', from = '2014-01-01', to = Sys.Date())
+volks <- VOW.DE[,6]
+
+```
+
+* Las ponemos en formato fecha, y unimos los cierres ajustados en un unico data frame
+```{r}
+pre_period <- as.Date(c("2014-01-01", "2015-09-01")) #periodo anterior al diesel gate
+post_period <- as.Date(c("2015-09-02", "2020-12-12")) #periodo posterior al diesel gate
+Volskwagen_c <- cbind(volks, bmw)
+bmw_c <- cbind(bmw,volks)
+Volskwagen_c <- na.omit(Volskwagen_c)
+bmw_c <- na.omit(bmw_c)
+```
+
+# Representamos la evolución de las dos series de cotización
+* Para observar el comportamiento inverso que han tenido ambos activos. Para ello definimos las 2 series temporales y las escalamos, ya que el precio de ambas es distinto, de esta manera podemos comparar variables de diferentes unidades, y observamos el efecto inverso del impacto sobre ambos activos.
+```{r,include=FALSE}
+start = "2014-01-01"
+  end = Sys.Date()
+quote = "AdjClose"
+VolksWagen <- get.hist.quote(instrument = "VOW.DE", start, end, quote, compression = "w")
+VolksWagen <- scale(VolksWagen, center = TRUE, scale = TRUE)
+BMW <- get.hist.quote(instrument = "BMW.DE", start, end, quote, compression = "w")
+BMW <- scale(BMW, center = TRUE, scale = TRUE)
+Activos <- cbind(VolksWagen, BMW)
+colnames(Activos) <- c("VolksWagen", "BMW")
+```
+
+```{r}
+autoplot(Activos, facet = NULL) + xlab("") + xlab("Tiempo de análisis") + ylab("Precio de cierre ajustado") + theme_classic()
+```
+
+
+
+## Queremos determinar el impacto, por lo que creamos el objeto llamado causal:
+* Podemos intentar mejorar nuestro modelo suministrando una o más covariables para que básicamente hagamos una regresión en nuestra variable de respuesta. Utilizaremos los precios de las acciones de BMW  para explicar nuestras series objetivo (se puede argumentar que esas series - especialmente BMW - pueden haber sido influenciadas por el escándalo también y eso puede ser cierto, pero ciertamente en una magnitud menor):
+```{r,message=FALSE,include=FALSE}
+causal <- CausalImpact(Volskwagen_c, pre.period = pre_period, post.period = post_period,model.args = list(niter = 1000, nseasons = 52))
+```
+
+## Y lo representamos graficamente,donde observamos los siguientes resultados:
+* Original: representa el impacto que ha tenido el diesel gate en la cotización de VW,la linea de tendencia negra es la cotización real, por otra parte la linea de azul hace referencia a lo que podría haber pasado con la cotización de VW si no hubiese ocurrido el problema del diesel gate. Si observamos el summary vemos como este suceso supuso una caida del 12% de la cotización de VW.
+```{r}
+summary(causal)
+plot(causal)
+plot(causal, "original")
+```
+
+* Por defecto, la trama contiene tres paneles. El primer panel muestra los datos y una predicción contrafactual para el período posterior al tratamiento. El segundo panel muestra la diferencia entre los datos observados y las predicciones contrafácticas. Este es el efecto causal puntual, según lo estimado por el modelo. El tercer panel suma las contribuciones puntuales del segundo panel, lo que da como resultado un gráfico del efecto acumulativo de la intervención. Recuerde, una vez más, que todas las inferencias anteriores dependen críticamente de la suposición de que las covariables no se vieron afectadas por la intervención. El modelo también supone que la relación entre las covariables y las series temporales tratadas, tal como se estableció durante el período anterior, se mantiene estable durante el período posterior.
+
+
+
+* Mediante la función summary con el atributo report, nos devuelve de manera textual los resultados obtenidos con el summary explicando el efecto del suceso sobre la cotiazación.
+```{r}
+#report causal
+
+summary(causal, "report")
+```
+
+```{r}
+causal1 <- CausalImpact(bmw_c, pre.period = pre_period, post.period = post_period)
+```
+```{r}
+summary(causal1)
+plot(causal1)
+plot(causal1, "original")
+```
+
+Como se observa  sucede lo contrario en el caso de BMW.
+```{r}
+#report del causal
+
+summary(causal1, "report")
+```
+
