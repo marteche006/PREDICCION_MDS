@@ -1,0 +1,92 @@
+---
+title: "Cointegración"
+author: "MARIO ARTECHE MIRANDA"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: Cayman
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+![](https://www.estudio34.com/wp-content/uploads/2019/09/cunef.png)
+
+* La cointegración es una relación fuerte a largo plazo. Que dos variables estén cointegradas implica que aunque crezcan o caigan lo hacen de forma sincronizada y mantienen dicha relación a lo largo del tiempo.
+* El concepto de cointegración surge por el problema de intentar saber si dos o más variables están en realidad relacionadas.
+* Muchas relaciones entre variables pueden ser espurias, es decir, falsas. Espuria significa que, aunque estadísticamente parezca que tienen relación, es pura casualidad.
+
+# Cargamos los paquetes:
+```{r, message=FALSE, warning=FALSE}
+# load required packages
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(xts)
+library(CausalImpact)
+library(quantmod)
+library(tseries)
+library("urca")
+```
+
+# Cargamos las series de los activos:
+```{r, warning=FALSE, include=FALSE}
+getSymbols('BMW.DE', from = '2014-01-01', to = Sys.Date())
+bmw <- BMW.DE[,6]
+
+getSymbols('VOW.DE', from = '2014-01-01', to = Sys.Date())
+volks <- VOW.DE[,6]
+Assets <- cbind(bmw,volks)
+```
+
+# Graficamos ambas series temporales:
+```{r, include=FALSE}
+start = "2014-01-01"
+  end = Sys.Date()
+quote = "AdjClose"
+VolksWagen <- get.hist.quote(instrument = "VOW.DE", start, end, quote, compression = "w")
+VolksWagen <- scale(VolksWagen, center = TRUE, scale = TRUE)
+BMW <- get.hist.quote(instrument = "BMW.DE", start, end, quote, compression = "w")
+BMW <- scale(BMW, center = TRUE, scale = TRUE)
+Activos <- cbind(VolksWagen, BMW)
+colnames(Activos) <- c("VolksWagen", "BMW")
+```
+
+```{r}
+autoplot(Activos, facet = NULL) + xlab("") + xlab("Tiempo de análisis") + ylab("Precio de cierre ajustado") + theme_classic()
+
+```
+
+```{r}
+jotest=ca.jo(data.frame(bmw,volks), type="trace", K=2, ecdet="none", spec="longrun")
+summary(jotest)
+
+```
+
+# Conclusión:
+¡Intentemos interpretar toda esta información! La primera sección muestra los valores propios generados por la prueba. En este caso tenemos dos con el más grande aproximadamente igual a 0.006486541.
+
+La siguiente sección muestra la estadística del test de trazas para las dos hipótesis de , y . Para cada una de estas dos pruebas tenemos no sólo el estadístico propiamente dicho (que se da bajo la columna de pruebas) sino también los valores críticos a determinados niveles de confianza: 10%, 5% y 1% respectivamente.
+
+La primera hipótesis, , prueba la presencia de cointegración. Es evidente que, dado que el estadístico de la prueba supera el nivel del 1% de forma significativa (), tenemos pruebas contundentes para rechazar la hipótesis nula de la no cointegración. La segunda prueba de contra la hipótesis alternativa de también proporciona pruebas claras para rechazar ya que el estadístico de la prueba excede el nivel del 1% de forma significativa. La prueba final para contra también proporciona pruebas suficientes para rechazar la hipótesis nula de que y así se puede concluir que el rango de la matriz es mayor que 2.
+
+Por lo tanto, la mejor estimación del rango de la matriz es , lo que nos dice que necesitamos una combinación lineal de dos series temporales para formar una serie estacionaria. Esto es de esperar, por definición de la serie, ya que el recorrido aleatorio subyacente utilizado para las dos series es no estacionario.
+
+¿Cómo hacemos para formar tal combinación lineal? La respuesta es hacer uso de los componentes eigenvectores del eigenvector asociado con el mayor valor propio. Anteriormente mencionamos que el mayor valor propio es aproximadamente 0.006486541. Corresponde al vector dado bajo la columna p.l2, y es aproximadamente igual a (1.0000000,0.1360693). Si formamos una combinación lineal de series usando estos componentes, recibiremos una serie estacionaria:
+
+```{r}
+s = 1.0000000*bmw + 0.1360693*volks
+s = na.omit(s)
+plot(s, type="l")
+```
+
+* Visualmente esto se parece mucho a una serie estacionaria. Podemos importar la prueba de Dickey-Fuller Aumentado (ADF) como una comprobación adicional:
+```{r}
+adf.test(s)
+
+```
+
+* La estadística de la prueba de Dickey-Fuller es mayor a 0.5, proporcionando un alto valor p y por lo tanto evidencia para no rechazar la hipótesis nula de una raíz unitaria y por lo tanto evidencia de que no tenemos una serie estacionaria formada por una combinación lineal.
